@@ -1,0 +1,26 @@
+table{
+    border: 1px solid silver;
+    width: 100%;
+}
+th, td{
+    border: 1px solid silver;
+    padding: 5px;
+}
+.admin{
+    text-align: right;
+}
+body {
+    font-family: Calibri, 'Gill Sans', 'Gill Sans MT',  'Trebuchet MS', sans-serif;
+}
+
+form{
+    float: left;
+}
+form div{
+    text-align: right;
+    line-height: 25px;
+}
+form label{
+    float: left;
+    margin-right: 3px;
+}

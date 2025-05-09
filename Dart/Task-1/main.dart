@@ -1,4 +1,3 @@
-import 'dart:math';
 
 // 1. Класс "Человек"
 class Person {

@@ -16,7 +16,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # ----------------
-# МОДЕЛИ
+# MODELS
 # ----------------
 
 class RoomType(db.Model):
@@ -32,7 +32,7 @@ class Room(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     room_number = db.Column(db.String(20), nullable=False, unique=True)
     room_type_id = db.Column(db.Integer, db.ForeignKey("room_types.id"), nullable=False)
-    status = db.Column(db.String(20), nullable=False, default="Свободен")  # Свободен / Занят / Техобслуживание
+    status = db.Column(db.String(20), nullable=False, default="Available")  # Available / Occupied / Maintenance
     floor = db.Column(db.Integer)
     room_type = db.relationship("RoomType")
 
@@ -60,18 +60,16 @@ class Reservation(db.Model):
     room = db.relationship("Room")
 
 # ----------------
-# Схемы валидации (Marshmallow)
+# Validation Schemas (Marshmallow)
 # ----------------
 
 def validate_phone(value):
-    # Только формат +7XXXXXXXXXX
     if not re.fullmatch(r"\+7\d{10}", value):
-        raise ValidationError("Телефон должен быть в формате +7XXXXXXXXXX")
+        raise ValidationError("Phone must be in format +7XXXXXXXXXX")
 
 def validate_passport(value):
-    # Простое правило: 10 цифр (можно адаптировать)
     if not re.fullmatch(r"\d{10}", value):
-        raise ValidationError("Паспорт должен содержать ровно 10 цифр")
+        raise ValidationError("Passport must contain exactly 10 digits")
 
 class GuestSchema(Schema):
     first_name = fields.Str(required=True, validate=validate.Length(1, 50))
@@ -92,16 +90,15 @@ class ReservationSchema(Schema):
     @validates("planned_checkin")
     def check_checkin(self, value):
         if value < date.today():
-            raise ValidationError("Дата заезда не может быть в прошлом")
+            raise ValidationError("Check-in date cannot be in the past")
 
     @validates("planned_checkout")
     def check_checkout(self, value):
-        # note: can't compare with checkin here; check in endpoint
         if value < date.today():
-            raise ValidationError("Дата выезда не может быть в прошлом")
+            raise ValidationError("Check-out date cannot be in the past")
 
 # ----------------
-# Помощник: сериализация ошибок marshmallow
+# Marshmallow error handler
 # ----------------
 def handle_marshmallow_errors(fn):
     def wrapper(*args, **kwargs):
@@ -113,7 +110,7 @@ def handle_marshmallow_errors(fn):
     return wrapper
 
 # ----------------
-# Маршруты
+# Routes
 # ----------------
 
 @app.route("/api/rooms", methods=["GET"])
@@ -152,21 +149,17 @@ def list_reservations():
 def create_reservation():
     json_data = request.get_json()
     if not json_data:
-        return jsonify({"error": "Нет JSON в запросе"}), 400
+        return jsonify({"error": "No JSON provided"}), 400
 
-    # Валидация входных данных
     schema = ReservationSchema()
-    data = schema.load(json_data)  # ValidationError -> handled
+    data = schema.load(json_data)
 
-    # дополнительная логика: check check_out > check_in
     if data["planned_checkout"] <= data["planned_checkin"]:
-        return jsonify({"error": "Дата выезда должна быть позже даты заезда"}), 400
+        return jsonify({"error": "Check-out date must be after check-in"}), 400
 
-    # Ensure guest exists or create
     guest_data = data["guest"]
     guest = Guest.query.filter_by(passport_number=guest_data["passport_number"]).first()
     if not guest:
-        # create new guest
         guest = Guest(
             first_name=guest_data["first_name"],
             last_name=guest_data["last_name"],
@@ -175,19 +168,17 @@ def create_reservation():
             email=guest_data.get("email")
         )
         db.session.add(guest)
-        db.session.flush()  # get id
+        db.session.flush()
 
-    # If room_id provided, check availability
     room_id = data.get("room_id")
     assigned_room = None
     if room_id:
         assigned_room = Room.query.filter_by(id=room_id).first()
         if not assigned_room:
-            return jsonify({"error": "Указанный номер не найден"}), 400
-        if assigned_room.status != "Свободен":
-            return jsonify({"error": "Номер недоступен"}), 400
+            return jsonify({"error": "Specified room not found"}), 400
+        if assigned_room.status != "Available":
+            return jsonify({"error": "Room is not available"}), 400
 
-    # Create reservation record
     reservation = Reservation(
         reservation_number=data["reservation_number"],
         guest_id=guest.id,
@@ -199,20 +190,19 @@ def create_reservation():
         payment_method=data.get("payment_method")
     )
 
-    # If room assigned -> set status to Занят
     if assigned_room:
-        assigned_room.status = "Занят"
+        assigned_room.status = "Occupied"
 
     db.session.add(reservation)
     db.session.commit()
 
-    return jsonify({"message": "Бронирование успешно создано", "reservation_id": reservation.id}), 201
+    return jsonify({"message": "Reservation created successfully", "reservation_id": reservation.id}), 201
 
 @app.route("/api/guests/<passport>", methods=["GET"])
 def get_guest_by_passport(passport):
     guest = Guest.query.filter_by(passport_number=passport).first()
     if not guest:
-        return jsonify({"error": "Гость не найден"}), 404
+        return jsonify({"error": "Guest not found"}), 404
     return jsonify({
         "id": guest.id,
         "first_name": guest.first_name,
@@ -222,32 +212,46 @@ def get_guest_by_passport(passport):
         "email": guest.email
     }), 200
 
-# init route to seed demo data (only for local testing)
 @app.route("/init-demo", methods=["POST"])
 def init_demo():
-    # Create some room types and rooms if not exist
     if RoomType.query.count() == 0:
-        rt1 = RoomType(type_name="Стандарт", description="Стандартный номер", base_price=3000.0, max_guests=2)
-        rt2 = RoomType(type_name="Бизнес", description="Бизнес-класс", base_price=5000.0, max_guests=2)
+        rt1 = RoomType(type_name="Standard", description="Standard room", base_price=3000.0, max_guests=2)
+        rt2 = RoomType(type_name="Business", description="Business class", base_price=5000.0, max_guests=2)
         db.session.add_all([rt1, rt2])
         db.session.flush()
-        r1 = Room(room_number="101", room_type_id=rt1.id, status="Свободен", floor=1)
-        r2 = Room(room_number="102", room_type_id=rt2.id, status="Свободен", floor=1)
+        r1 = Room(room_number="101", room_type_id=rt1.id, status="Available", floor=1)
+        r2 = Room(room_number="102", room_type_id=rt2.id, status="Available", floor=1)
         db.session.add_all([r1, r2])
         db.session.commit()
-        return jsonify({"message": "Демо-данные созданы"}), 201
+        return jsonify({"message": "Demo data created"}), 201
     else:
-        return jsonify({"message": "Демо-данные уже существуют"}), 200
+        return jsonify({"message": "Demo data already exists"}), 200
 
 # ----------------
-# Инициализация БД при старте (если файла нет)
+# Удаление демо-данных
+# ----------------
+@app.route("/delete-demo", methods=["POST"])
+def delete_demo():
+    with app.app_context():
+        # Удаляем бронирования
+        Reservation.query.delete()
+        # Удаляем гостей
+        Guest.query.delete()
+        # Удаляем комнаты
+        Room.query.delete()
+        # Удаляем типы комнат
+        RoomType.query.delete()
+        db.session.commit()
+    return jsonify({"message": "Demo data deleted"}), 200
+
+# ----------------
+# DB Initialization
 # ----------------
 def init_db():
-    with app.app_context():  #  создаём контекст приложения
+    with app.app_context():
         db.create_all()
-        print("База данных инициализирована")
+        print("Database initialized")
 
 if __name__ == "__main__":
-    init_db()  # выполняем один раз при старте
+    init_db()
     app.run(host="127.0.0.1", port=5000, debug=True)
-

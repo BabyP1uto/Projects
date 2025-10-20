@@ -1,0 +1,4 @@
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.3
+marshmallow==3.19.0
+email-validator==2.0.0
